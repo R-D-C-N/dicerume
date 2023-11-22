@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Serialize, Deserialize};
+use snow::params::NoiseParams;
 
 use crate::{dice::DiceExpression, error::{RumeError, RumeResult}};
 
@@ -132,3 +133,6 @@ pub enum RumeCommand {
 
 pub const USERNAME_REGEX_STR: &str = r"^[A-Za-z0-9\p{Emoji_Presentation} \.\-]{3,}$"; 
 pub static USERNAME_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(USERNAME_REGEX_STR).unwrap());
+
+pub const SECRET: &[u8] = b"THE ROLLER THE WATER DRYER THE CUDDLER THE STRING WORMS";
+pub static PARAMS: Lazy<NoiseParams> = Lazy::new(|| {"Noise_XXpsk3_25519_ChaChaPoly_SHA256".parse().unwrap()});

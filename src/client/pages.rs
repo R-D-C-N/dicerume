@@ -2,7 +2,7 @@ use std::{time::Instant, rc::Rc};
 
 use base64::Engine;
 use chacha20poly1305::{XChaCha20Poly1305, KeyInit, aead::Aead};
-use egui::{TextBuffer, Response, RichText, Color32};
+use egui::{TextBuffer, Response, RichText, Color32, Vec2};
 use once_cell::sync::Lazy;
 use regex::Regex;
 
@@ -64,6 +64,21 @@ pub fn time_stamp(secs: u64) -> String {
     } else {
         String::from("Now")
     }
+}
+
+fn two_item_rows<R>(ui: &mut egui::Ui, left: impl FnOnce(&mut egui::Ui), right: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    ui.horizontal_top(|ui| {
+        ui.allocate_ui_with_layout(
+            Vec2::new(ui.available_width()/2.0, ui.available_height()),
+            egui::Layout::right_to_left(egui::Align::Min),
+            left
+        );
+        ui.allocate_ui_with_layout(
+            Vec2::new(ui.available_width()/2.0, ui.available_height()),
+            egui::Layout::left_to_right(egui::Align::Min),
+            right
+        ).inner
+    }).inner
 }
 
 const ROOMCODE_REGEX_STR: &str = r"^([\.\/A-Za-z0-9]+)-([\.\/A-Za-z0-9]+)(:?-([\.\/A-Za-z0-9]+))?$";
@@ -178,14 +193,19 @@ impl RumeEgui {
                 ui.add_space(20.0);
                 ui.heading("Login");
                 let text_resp = egui::Frame::none().show(ui, |ui| {
-                    ui.horizontal_top(|ui| {
-                        ui.label("username");
-                        ui.add_enabled(false, egui::TextEdit::singleline(self.name.get_mut().unwrap()).interactive(false));
-                    });
-                    ui.horizontal_top(|ui| {
-                        ui.label("password");
-                        ui.text_edit_singleline(&mut self.input)
-                    }).inner
+                    two_item_rows(ui,
+                        |ui| {ui.label("username");},
+                        |ui| {
+                            ui.add_enabled(
+                                false,
+                                egui::TextEdit::singleline(self.name.get_mut().unwrap()).interactive(false)
+                            );
+                        }
+                    );
+                    two_item_rows(ui,
+                        |ui| {ui.label("password");},
+                        |ui| {ui.text_edit_singleline(&mut self.input)}
+                    )
                 }).inner;
                 if ui.button("Login").clicked() || on_submit(text_resp) {
                     self.st = ST::LoggingIn;
@@ -206,14 +226,14 @@ impl RumeEgui {
                     ui.add_space(20.0);
                     ui.heading("Create Account");
                     let text_resp = egui::Frame::none().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("username");
-                            ui.add_enabled(false, egui::TextEdit::singleline(self.name.get_mut().unwrap()).interactive(false));
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("password");
-                            ui.text_edit_singleline(&mut self.input)
-                        }).inner
+                        two_item_rows(ui,
+                            |ui| {ui.label("username");},
+                            |ui|{ui.add_enabled(false, egui::TextEdit::singleline(self.name.get_mut().unwrap()).interactive(false));}
+                        );
+                        two_item_rows(ui,
+                            |ui| {ui.label("password");},
+                            |ui| {ui.text_edit_singleline(&mut self.input)}
+                        )
                     }).inner;
                     if ui.button("Create Account").clicked() || on_submit(text_resp) {
                         self.requester.send_operation(RumeCommand::CreateAccount { user: self.name.get().unwrap().clone(), pass: self.input.take() });
@@ -519,6 +539,7 @@ impl RumeEgui {
                 ui.separator();
                 ui.horizontal_top(|ui| {
                     ui.heading("Chat");
+                    ui.add_space(10.0);
                     ui.label(&room.1.name);
                 });
                 ui.separator();

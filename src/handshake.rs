@@ -87,11 +87,11 @@ impl NoiseStream {
 pub fn handshake_client(mut stream: TcpStream) -> Result<NoiseStream, CommandError> {
     let mut buf = vec![0u8;65535];
     
-    let builder = Builder::new(crate::PARAMS.get().unwrap().clone());
+    let builder = Builder::new(crate::shared::PARAMS.clone());
     let keys = builder.generate_keypair()?;
     let mut noise = builder
         .local_private_key(&keys.private)
-        .psk(3, &crate::SECRET[..32])
+        .psk(3, &crate::shared::SECRET[..32])
         .build_initiator()?;
 
     let len = noise.write_message(&[], &mut buf)?;
@@ -111,11 +111,11 @@ pub fn handshake_client(mut stream: TcpStream) -> Result<NoiseStream, CommandErr
 pub fn handshake_server(mut stream: TcpStream) -> Result<NoiseStream, CommandError> {
     let mut buf = vec![0u8;65535];
     
-    let builder = Builder::new(crate::PARAMS.get().unwrap().clone());
+    let builder = Builder::new(crate::shared::PARAMS.clone());
     let keys = builder.generate_keypair()?;
     let mut noise = builder
         .local_private_key(&keys.private)
-        .psk(3, &crate::SECRET[..32])
+        .psk(3, &crate::shared::SECRET[..32])
         .build_responder()?;
 
     noise.read_message(&stream.nrecv()?, &mut buf)?;
