@@ -8,10 +8,18 @@ use regex::Regex;
 
 use crate::{shared::{RumeCommand, RumeMessage, UserMessage, RumeId, RumeInfo, RumeParams, RumeKind, NOWHERE_INFO}, dice::make_dice_expression, error::ResultUtil};
 
-use super::{RumeEgui, SentCmd, requester::Msg};
+use super::{RumeEgui, requester::Msg};
 
 pub fn now_in_secs() -> u64 {
     std::time::UNIX_EPOCH.elapsed().unwrap().as_secs()
+}
+
+pub enum SentCmd {
+    Hear,
+    Say(Box<RumeMessage>),
+    Roll,
+    Leave,
+    Wait(Instant),
 }
 
 pub enum ST {

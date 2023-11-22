@@ -1,6 +1,8 @@
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Serialize, Deserialize};
 
-use crate::dice::DiceExpression;
+use crate::{dice::DiceExpression, error::{RumeError, RumeResult}};
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone, Copy)]
 pub struct UserToken(pub u64);
@@ -100,7 +102,7 @@ pub enum RumeCommand {
     CreateRume{user: UserToken, params: RumeParams},
     /// returns `Result<RumeInfo>`
     Enter{user: UserToken, rume: RumeId, pass: Option<String>},
-    /// returns `Result<Vec<Vec<u8>>>`
+    /// returns `Nothing`
     Hear{user: UserToken},
     /// returns `Result<u64>`
     Say{user: UserToken, msg: Box<RumeMessage>},
@@ -110,4 +112,23 @@ pub enum RumeCommand {
     Roll{user: UserToken, dice: DiceExpression},
     Ping,
     Debug
+} impl RumeCommand {
+    pub fn serialize_error(&self) -> fn(RumeError) -> serde_cbor::Result<Vec<u8>> {
+        match self {
+            RumeCommand::CreateAccount { .. } => |e| {serde_cbor::to_vec(&RumeResult::<()>::Err(e))},
+            RumeCommand::Login { .. } => |e| {serde_cbor::to_vec(&RumeResult::<UserToken>::Err(e))},
+            RumeCommand::Logout { .. } => |e| {serde_cbor::to_vec(&RumeResult::<()>::Err(e))},
+            RumeCommand::CreateRume { .. } => |e| {serde_cbor::to_vec(&RumeResult::<RumeId>::Err(e))},
+            RumeCommand::Enter { .. } => |e| {serde_cbor::to_vec(&RumeResult::<RumeInfo>::Err(e))},
+            RumeCommand::Hear { .. } => |e| {serde_cbor::to_vec(&RumeResult::<HearMessage>::Err(e))},
+            RumeCommand::Say { .. } => |e| {serde_cbor::to_vec(&RumeResult::<u64>::Err(e))},
+            RumeCommand::Info { .. } => |e| {serde_cbor::to_vec(&RumeResult::<RumeInfo>::Err(e))},
+            RumeCommand::Roll { .. } => |e| {serde_cbor::to_vec(&RumeResult::<()>::Err(e))},
+            RumeCommand::Ping => |e| {serde_cbor::to_vec(&RumeResult::<()>::Err(e))},
+            RumeCommand::Debug => |e| {serde_cbor::to_vec(&RumeResult::<()>::Err(e))},
+        }
+    }
 }
+
+pub const USERNAME_REGEX_STR: &str = r"^[A-Za-z0-9\p{Emoji_Presentation} \.\-]{3,}$"; 
+pub static USERNAME_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(USERNAME_REGEX_STR).unwrap());

@@ -1,11 +1,11 @@
-use std::{io::Result as IoResult, cell::OnceCell, collections::VecDeque, time::Instant, rc::Rc};
+use std::{io::Result as IoResult, cell::OnceCell, collections::VecDeque, rc::Rc};
 
 use chacha20poly1305::{XChaCha20Poly1305, KeyInit, AeadCore, aead::Aead};
 use eframe::NativeOptions;
 
 use crate::shared::{RumeMessage, UserToken, RumeCommand, RumeInfo, RumeId, RumeKind, UserMessage};
 
-use self::pages::{now_in_secs, ST};
+use self::pages::{now_in_secs, ST, SentCmd};
 
 mod requester;
 mod pages;
@@ -123,13 +123,6 @@ impl RumeEgui {
             self.insert_message(i);
         }
     }
-}
-enum SentCmd {
-    Hear,
-    Say(Box<RumeMessage>),
-    Roll,
-    Leave,
-    Wait(Instant),
 }
 
 impl eframe::App for RumeEgui {

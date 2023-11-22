@@ -1,9 +1,9 @@
 use serde::{Serialize, Deserialize};
 
-pub type RumeResult<T> = Result<T, RumeError>; 
-#[cfg(feature = "server")]
-pub type EmptyResult = RumeResult<()>;
+pub type RumeResult<T> = Result<T, RumeError>;
 
+
+// TODO maybe use thiserror
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RumeError {
     Serialization,
