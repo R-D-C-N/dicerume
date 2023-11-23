@@ -1,7 +1,8 @@
-use std::{io::Result as IoResult, cell::OnceCell, collections::VecDeque, rc::Rc};
+use std::{io::Result as IoResult, cell::OnceCell, collections::VecDeque, rc::Rc, net::{SocketAddr, ToSocketAddrs}, thread::JoinHandle};
 
 use chacha20poly1305::{XChaCha20Poly1305, KeyInit, AeadCore, aead::Aead};
 use eframe::NativeOptions;
+use serde::{Serialize, Deserialize};
 
 use crate::shared::{RumeMessage, UserToken, RumeCommand, RumeInfo, RumeId, RumeKind, UserMessage};
 
@@ -11,10 +12,14 @@ mod requester;
 mod pages;
 
 pub fn init_client() -> IoResult<()> {
+    std::fs::File::create("./client.cfg")?;
+    let bytes = std::fs::read("./client.cfg")?;
+    let cfg: ClientConfig = serde_json::from_slice(&bytes).unwrap_or_default();
+    cfg.get_server_address()?;
     eframe::run_native(
         "RumeClient",
         NativeOptions::default(),
-        Box::new(|_cc| {Box::new(RumeEgui::new())})
+        Box::new(|_cc| {Box::new(RumeEgui::new(cfg))})
     ).unwrap();
     Ok(())
 }
@@ -22,6 +27,7 @@ pub fn init_client() -> IoResult<()> {
 struct RumeEgui {
     db: OnceCell<sled::Db>,
     name: OnceCell<String>,
+    cfg: ClientConfig,
     error: Option<String>,
     input: String,
     check: bool,
@@ -33,14 +39,41 @@ struct RumeEgui {
     requester: requester::ConnectionManager,
     messages: Vec<RumeMessage>,
     request_queue: VecDeque<SentCmd>,
+    worker_threads: Vec<JoinHandle<()>>
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ClientConfig {
+    server_address: String,
+    server_port: Option<String>
+} impl ClientConfig {
+    fn get_server_address(&self) -> IoResult<SocketAddr> {
+        match format!("{}:{}", self.server_address, self.server_port.as_ref().map(|a| a.as_str()).unwrap_or("12346"))
+        .to_socket_addrs()
+        .map(|mut it| it.nth(0)) {
+            Ok(a) => {
+                match a {
+                    Some(addr) => {Ok(addr)}
+                    None => {Err(std::io::Error::new(std::io::ErrorKind::NotFound, "socket address not found"))}
+                }
+            }
+            Err(e) => {Err(e)}
+        }
+    }
+} impl Default for ClientConfig {
+    fn default() -> Self {
+        Self { server_address: String::from("localhost"), server_port: None }
+    }
+}
 
 impl RumeEgui {
-    fn new() -> Self {
+    /// Check that `ClientConfig::get_server_address()` for `cfg` doesn't return an Err
+    fn new(cfg: ClientConfig) -> Self {
+        let addr = cfg.get_server_address();
         Self {
             db: OnceCell::new(),
             name: OnceCell::new(),
+            cfg: cfg,
             error: None,
             input: String::new(),
             check: false,
@@ -49,9 +82,10 @@ impl RumeEgui {
             room_code: Err("No code"),
             room_info: None,
             room_params: None,
-            requester: requester::ConnectionManager::new(),
+            requester: requester::ConnectionManager::new(addr.unwrap()),
             messages: Vec::new(),
-            request_queue: VecDeque::new()
+            request_queue: VecDeque::new(),
+            worker_threads: Vec::new()
         }
     }
     fn room_params(&mut self) -> &mut (RumeKind, String, Option<String>) {
@@ -174,6 +208,9 @@ impl eframe::App for RumeEgui {
                 }
                 ST::LoggingOut => {
                     self.logging_out(ctx);
+                }
+                ST::Config(..) => {
+                    self.edit_config(ctx);
                 }
             }
         }

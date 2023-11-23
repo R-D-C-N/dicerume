@@ -1,4 +1,4 @@
-use std::{time::Instant, rc::Rc};
+use std::{time::Instant, rc::Rc, sync::{Arc, atomic::{AtomicBool, Ordering}}, cell::RefCell};
 
 use base64::Engine;
 use chacha20poly1305::{XChaCha20Poly1305, KeyInit, aead::Aead};
@@ -6,9 +6,9 @@ use egui::{TextBuffer, Response, RichText, Color32, Vec2};
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-use crate::{shared::{RumeCommand, RumeMessage, UserMessage, RumeId, RumeInfo, RumeParams, RumeKind, NOWHERE_INFO}, dice::make_dice_expression, error::ResultUtil};
+use crate::{shared::{RumeCommand, RumeMessage, UserMessage, RumeId, RumeInfo, RumeParams, RumeKind, NOWHERE_INFO, USERNAME_REGEX}, dice::make_dice_expression, error::ResultUtil};
 
-use super::{RumeEgui, requester::Msg};
+use super::{RumeEgui, requester::Msg, ClientConfig};
 
 pub fn now_in_secs() -> u64 {
     std::time::UNIX_EPOCH.elapsed().unwrap().as_secs()
@@ -22,6 +22,7 @@ pub enum SentCmd {
     Wait(Instant),
 }
 
+#[derive(Debug, Clone)]
 pub enum ST {
     Nothing,
     Login,
@@ -35,6 +36,7 @@ pub enum ST {
     CreatingRoom,
     Leaving,
     LoggingOut,
+    Config(Arc<AtomicBool>),
 }
 
 pub fn on_submit(resp: Response) -> bool {
@@ -74,7 +76,7 @@ fn two_item_rows<R>(ui: &mut egui::Ui, left: impl FnOnce(&mut egui::Ui), right: 
             left
         );
         ui.allocate_ui_with_layout(
-            Vec2::new(ui.available_width()/2.0, ui.available_height()),
+            Vec2::new(ui.available_width(), ui.available_height()),
             egui::Layout::left_to_right(egui::Align::Min),
             right
         ).inner
@@ -95,9 +97,10 @@ impl RumeEgui {
                 ui.add_space(20.0);
                 ui.heading("Name:");
                 let text_resp = ui.text_edit_singleline(&mut self.input);
-                if ui.button("This is who I am.").clicked() || on_submit(text_resp) {
+                let button_resp = ui.add_enabled(USERNAME_REGEX.is_match(&self.input), egui::Button::new("This is who I am."));
+                if button_resp.clicked() || on_submit(text_resp) {
                     match sled::open(format!("./client/{}", &self.input)) {
-                        Ok(db) => { // TODO match against username regex
+                        Ok(db) => {
                             self.name.set(self.input.take()).unwrap();
                             self.db.set(db).unwrap();
                         }
@@ -136,6 +139,9 @@ impl RumeEgui {
                 }
                 if ui.button("Create Account").clicked() {
                     self.st = ST::CreateAcc;
+                }
+                if ui.button("Config").clicked() {
+                    self.st = ST::Config(Arc::new(true.into()));
                 }
             });
         });
@@ -417,6 +423,7 @@ impl RumeEgui {
                 Msg::RumeInfo(info) => {
                     let room_code = self.room_code.trade_ok_with_err("No Code");
                     self.room_info = Some(Rc::new((room_code.0, info, room_code.2.clone(), room_code.1)));
+                    self.input = String::new();
                     self.st = ST::Nothing;
                 }
                 Msg::Error(err) => {
@@ -687,5 +694,76 @@ impl RumeEgui {
                 }
             }
         });
+    }
+    pub fn edit_config(&mut self, ctx: &egui::Context) {
+        if let ST::Config(verified) = self.st.clone() {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.heading("Config");
+                    ui.add_enabled_ui(self.worker_threads.len() == 0, |ui| {
+                        let change = two_item_rows(ui,
+                            |ui| {ui.label("Server Address");},
+                            |ui| {ui.text_edit_singleline(&mut self.cfg.server_address)}
+                        ).changed();
+                        let mut s = String::from("12346");
+                        let change = change || two_item_rows(ui,
+                            |ui| {ui.label("Server port");},
+                            |ui| {ui.add_enabled_ui(self.check, |ui| ui.text_edit_singleline(self.cfg.server_port.as_mut().unwrap_or(&mut s))).inner}
+                        ).changed();
+                        let check_resp = ui.checkbox(&mut self.check, "Custom port").clicked();
+                        if check_resp && self.check {
+                            self.cfg.server_port = Some(String::from("12346"));
+                        } else if check_resp && !self.check {
+                            self.cfg.server_port = None;
+                        }
+                        if change {verified.store(false, Ordering::Relaxed)}
+                    });
+                    if self.worker_threads.first().is_some() {
+                        ui.spinner();
+                        if self.worker_threads.first().unwrap().is_finished() {
+                            self.worker_threads.remove(0).join().ok();
+                        }
+                    } else {
+                        if ui.button("Verify").clicked() {
+                            let cfg = self.cfg.clone();
+                            let verified = verified.clone();
+                            let ctx = ui.ctx().clone();
+                            self.worker_threads.push(std::thread::spawn(move || {
+                                if cfg.get_server_address().is_ok() {
+                                    verified.store(true, Ordering::Relaxed);
+                                } else {
+                                    verified.store(false, Ordering::Relaxed);
+                                }
+                                ctx.request_repaint();
+                            }));
+                        }
+                    }
+                    let update = RefCell::new(false);
+                    two_item_rows(ui,
+                        |ui: &mut egui::Ui| {
+                            ui.add_enabled_ui(verified.load(Ordering::Relaxed), |ui| {
+                                if ui.button("Save").clicked() {
+                                    *update.borrow_mut() = true;
+                                }
+                            });
+                        }, |ui| {if ui.button("Default").clicked() {
+                            self.cfg = ClientConfig::default();
+                            *update.borrow_mut() = true;
+                        }}
+                    );
+                    if *update.borrow() {
+                        self.check = false;
+                        self.st = ST::Nothing;
+                        self.update_config();
+                    }
+                });
+            });
+        } else {
+            egui::CentralPanel::default().show(ctx, |ui| {ui.label(format!("How'd you get here? ({} in {})", line!(), file!()))});
+        }
+    }
+    fn update_config(&mut self) {
+        self.requester.change_addr(self.cfg.get_server_address().unwrap());
+        std::fs::write("client.cfg", serde_json::to_vec(&self.cfg).unwrap()).ok();
     }
 }

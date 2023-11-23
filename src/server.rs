@@ -20,7 +20,7 @@ use crate::{
 mod request;
 
 pub fn init_server() -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:12346")?;
+    let listener = TcpListener::bind("0.0.0.0:12346")?;
     for stream in listener.incoming() {
         clear_finished_threads();
         let s = stream?;

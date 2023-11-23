@@ -1,4 +1,4 @@
-use std::{any::Any, thread::JoinHandle, collections::VecDeque, net::TcpStream, time::Duration, io::{Write, Read}};
+use std::{any::Any, thread::JoinHandle, collections::VecDeque, net::{TcpStream, SocketAddr}, time::Duration, io::{Write, Read}};
 
 use crate::{shared::{RumeCommand, UserToken, RumeInfo, RumeMessage, RumeId, HearMessage}, error::{RumeResult, RumeError}, handshake::handshake_client};
 
@@ -25,12 +25,13 @@ pub enum Msg {
     }
 }
 pub struct ConnectionManager {
+    server_address: SocketAddr,
     thread: Option<JoinHandle<Msg>>,
     op_queue: VecDeque<RumeCommand>,
     pub res_queue: VecDeque<Msg>,
 } impl ConnectionManager {
-    pub fn new() -> Self {
-        Self { thread: None, op_queue: VecDeque::new(), res_queue: VecDeque::new() }
+    pub fn new(addr: SocketAddr) -> Self {
+        Self { server_address: addr, thread: None, op_queue: VecDeque::new(), res_queue: VecDeque::new() }
     }
     pub fn tick(&mut self, ctx: &egui::Context) {
         if self.thread.is_some() {
@@ -46,14 +47,18 @@ pub struct ConnectionManager {
         } else {
             if let Some(op) = self.op_queue.pop_front() {
                 let ctx = ctx.clone();
+                let addr = self.server_address.clone();
                 self.thread = Some(
                 std::thread::spawn(move || {
-                    let r = do_operation(op, 0);
+                    let r = do_operation(addr, op, 0);
                     ctx.request_repaint();
                     r
                 }));
             }
         }
+    }
+    pub fn change_addr(&mut self, new_addr: SocketAddr) {
+        self.server_address = new_addr;
     }
     pub fn send_operation(&mut self, op: RumeCommand) {
         self.op_queue.push_back(op);
@@ -65,9 +70,9 @@ pub struct ConnectionManager {
 }
 
 const RETRY_LIMIT: u32 = 5;
-const SERVERIP: &str = "127.0.0.1:12346";
-fn do_operation(c: RumeCommand, retry: u32) -> Msg {
-    let mut con = TcpStream::connect(SERVERIP).unwrap();
+//const SERVERIP: &str = "127.0.0.1:12346";
+fn do_operation(addr: SocketAddr, c: RumeCommand, retry: u32) -> Msg {
+    let mut con = TcpStream::connect(addr).unwrap();
     con.write_all(b"rumeconnectA").unwrap();
     let mut res = [0u8;4];
     con.read_exact(&mut res).unwrap();
@@ -199,7 +204,7 @@ fn do_operation(c: RumeCommand, retry: u32) -> Msg {
         b"fail" => {
             drop(con);
             return if retry < RETRY_LIMIT {
-                do_operation(c, retry+1)
+                do_operation(addr, c, retry+1)
             } else {
                 Msg::Error(String::from("Server is busy"))
             };
